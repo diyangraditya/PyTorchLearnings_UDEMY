@@ -10,3 +10,5 @@ Notebooks/UDEMY_01_Pytorch_wokflow-copy.ipynb
 /Datasets
 /Models
 /.venv/
+/going_modular/__pycache__
+*.pyc
