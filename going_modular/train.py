@@ -1,68 +1,90 @@
-"""
-train a PyTorch image classification model using device agnostic code
-"""
 
-import os
+import argparse
+from pathlib import Path
 import torch
-
+from torch import nn
 from torchvision import transforms
-from timeit import default_timer as timer
+import data_setup, engine, model_builder, utils
+import data_setup
+import engine
+import model_builder
+import utils
 
-import data_setup, model_builder, engine, utils
 
-# setup hyperparameters
-NUM_EPOCHS = 5
-BATCH_SIZE = 32
-HIDDEN_UNITS = 10
-LEARNING_RATE = 0.001
+parser = argparse.ArgumentParser(description="Train a TinyVGG image classifier.")
+parser.add_argument(
+    "--train_dir",
+    type=str,
+    default="../Datasets/modular/pizza_steak_sushi/train",
+    help="Directory containing training images.",
+)
+parser.add_argument(
+    "--test_dir",
+    type=str,
+    default="../Datasets/modular/pizza_steak_sushi/test",
+    help="Directory containing testing images.",
+)
+parser.add_argument("--learning_rate", type=float, default=0.001)
+parser.add_argument("--batch_size", type=int, default=32)
+parser.add_argument("--num_epochs", type=int, default=5)
+parser.add_argument("--hidden_units", type=int, default=10)
+args = parser.parse_args()
 
-# setup the directory paths
-train_dir = "../Datasets/modular/pizza_steak_sushi/train"
-test_dir = "../Datasets/modular/pizza_steak_sushi/test"
 
-# setup device agnostic code
+def resolve_data_dir(path):
+    """Support data extracted either directly or into a nested folder."""
+    path = Path(path)
+    if path.is_dir():
+        return path
+
+    nested_path = path.parent / "pizza_steak_sushi" / path.name
+    if nested_path.is_dir():
+        return nested_path
+
+    raise FileNotFoundError(f"Could not find data directory: {path}")
+
+
+train_dir = resolve_data_dir(args.train_dir)
+test_dir = resolve_data_dir(args.test_dir)
+
 device = "cuda" if torch.cuda.is_available() else "cpu"
-
-# Create transforms
-data_transform = transforms.Compose([
-    transforms.Resize((64, 64)),
-    transforms.ToTensor()
-    ])
-
-# Create dataloaders
-train_dataloader, test_dataloader, class_names = data_setup.create_dataloaders(train_dir=train_dir,
-                                                                             test_dir=test_dir,
-                                                                             transform=data_transform,
-                                                                             batch_size=BATCH_SIZE)
-
-# Create model
 torch.manual_seed(42)
-torch.cuda.manual_seed(42)
 
-model = model_builder.TinyVGG(input_shape=3,
-                              hidden_units=HIDDEN_UNITS,
-                              output_shape=len(class_names)).to(device)
+image_transform = transforms.Compose(
+    [
+        transforms.Resize((64, 64)),
+        transforms.ToTensor(),
+    ]
+)
 
-# Setup loss function and optimizer
-loss_fn = torch.nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(params=model.parameters(), lr=LEARNING_RATE)
+train_dataloader, test_dataloader, class_names = data_setup.create_dataloaders(
+    train_dir=train_dir,
+    test_dir=test_dir,
+    transform=image_transform,
+    batch_size=args.batch_size,
+)
 
-# Start the timer
-start_time = timer()
+model = model_builder.TinyVGG(
+    input_shape=3,
+    hidden_units=args.hidden_units,
+    output_shape=len(class_names),
+).to(device)
 
-# start training with help from engine.py
-engine.train(model=model,
-            train_dataloader=train_dataloader,
-            test_dataloader=test_dataloader,
-            optimizer=optimizer,
-            loss_fn=loss_fn,
-            epochs=NUM_EPOCHS,
-            device=device)
+loss_fn = nn.CrossEntropyLoss()
+optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
 
-end_time = timer()
-print(f"[INFO] Total training time: {end_time-start_time:.3f} seconds")
+engine.train(
+    model=model,
+    train_dataloader=train_dataloader,
+    test_dataloader=test_dataloader,
+    optimizer=optimizer,
+    loss_fn=loss_fn,
+    epochs=args.num_epochs,
+    device=device,
+)
 
-# save the model to file
-utils.save_model(model=model,
-                 target_dir="../Models/",
-                 model_name="05_going_modular_script_mode_tinyvgg_model.pth")
+utils.save_model(
+    model=model,
+    target_dir="../Models",
+    model_name="05_going_modular_script_mode_tinyvgg_model.pth",
+)
